@@ -1,4 +1,4 @@
-import {Inject} from '../../src/annotations';
+import {Inject} from 'di';
 
 import {Heater} from './heater';
 
@@ -10,6 +10,6 @@ export class Pump {
 
   pump() {
     this.heater.on();
-    console.log('Pumping...');
+    // console.log('Pumping...');
   }
 }

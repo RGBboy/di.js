@@ -1,5 +1,8 @@
 import {Injector} from './injector';
-import {Inject, annotate, getProvideAnnotation, getInjectTokens} from './annotations';
+import {Inject, annotate, readAnnotations} from './annotations';
+import {isFunction} from './util';
+import {createProviderFromFnOrClass} from './providers';
+
 
 var currentSpec = null;
 beforeEach(function() {
@@ -15,18 +18,6 @@ afterEach(function() {
 
 function isRunning() {
   return !!currentSpec;
-}
-
-function isUpperCase(char) {
-  return char.toUpperCase() === char;
-}
-
-function isClass(clsOrFunction) {
-  if (clsOrFunction.name) {
-    return isUpperCase(clsOrFunction.name.charAt(0));
-  }
-
-  return Object.keys(clsOrFunction.prototype).length > 0;
 }
 
 function use(mock) {
@@ -71,29 +62,25 @@ function inject(...params) {
     if (!currentSpec.$$injector) {
       var providers = new Map();
       var modules = [];
+      var annotations;
 
-      for (var providerWrapper of currentSpec.$$providers) {
+      currentSpec.$$providers.forEach(function(providerWrapper) {
         if (!providerWrapper.as) {
           // load as a regular module
           modules.push(providerWrapper.provider);
         } else {
-          if (typeof providerWrapper.provider !== 'function') {
+          if (!isFunction(providerWrapper.provider)) {
             // inlined mock
-            providers.set(providerWrapper.as, {
-              provider: function() {return providerWrapper.provider},
-              params: [],
-              isClass: false
-            });
+            providers.set(providerWrapper.as, createProviderFromFnOrClass(function() {
+              return providerWrapper.provider;
+            }, {provide: {token: null, isPromise: false}, params: []}));
           } else {
             // a fn/class provider with overriden token
-            providers.set(providerWrapper.as, {
-              provider: providerWrapper.provider,
-              params: getInjectTokens(providerWrapper.provider),
-              isClass: isClass(providerWrapper.provider)
-            });
+            annotations = readAnnotations(providerWrapper.provider);
+            providers.set(providerWrapper.as, createProviderFromFnOrClass(providerWrapper.provider, annotations));
           }
         }
-      };
+      });
 
       currentSpec.$$injector = new Injector(modules, null, providers);
     }
@@ -106,4 +93,4 @@ function inject(...params) {
 
 export {
   use, inject
-}
+};

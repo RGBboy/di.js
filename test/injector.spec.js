@@ -1,11 +1,11 @@
 import {Injector} from '../src/injector';
-import {Inject, Provide, SuperConstructor} from '../src/annotations';
+import {Inject, Provide, SuperConstructor, InjectLazy, TransientScope} from '../src/annotations';
 
-module carModule from './fixtures/car';
-module houseModule from './fixtures/house';
-module shinyHouseModule from './fixtures/shiny_house';
+import {Car, CyclicEngine} from './fixtures/car';
+import {module as houseModule} from './fixtures/house';
+import {module as shinyHouseModule} from './fixtures/shiny_house';
 
-// TODO(vojta): refactor to not use strings once we can do toString() on classes
+
 describe('injector', function() {
 
   it('should instantiate a class without dependencies', function() {
@@ -44,9 +44,7 @@ describe('injector', function() {
 
 
   it('should override providers', function() {
-    class Engine {
-      start() {}
-    }
+    class Engine {}
 
     @Inject(Engine)
     class Car {
@@ -97,7 +95,7 @@ describe('injector', function() {
       start() {}
     }
 
-    var injector = new Injector([]);
+    var injector = new Injector();
     var car = injector.get(Car);
 
     expect(car).toBeInstanceOf(Car);
@@ -106,9 +104,7 @@ describe('injector', function() {
 
 
   it('should use @Inject over type annotations', function() {
-    class Engine {
-      start() {}
-    }
+    class Engine {}
 
     class MockEngine extends Engine {
       start() {}
@@ -157,10 +153,7 @@ describe('injector', function() {
 
 
   it('should cache instances', function() {
-    class Car {
-      constructor() {}
-      start() {}
-    }
+    class Car {}
 
     var injector = new Injector();
     var car = injector.get(Car);
@@ -178,7 +171,7 @@ describe('injector', function() {
 
 
   it('should show the full path when no provider defined', function() {
-    var injector = new Injector([houseModule]);
+    var injector = new Injector(houseModule);
 
     expect(() => injector.get('House'))
         .toThrowError('No provider for Sink! (House -> Kitchen -> Sink)');
@@ -186,13 +179,9 @@ describe('injector', function() {
 
 
   it('should throw when trying to instantiate a cyclic dependency', function() {
-    var useCyclicEngineModule = {
-      Engine: carModule.CyclicEngine
-    };
+    var injector = new Injector([CyclicEngine]);
 
-    var injector = new Injector([carModule, useCyclicEngineModule]);
-
-    expect(() => injector.get('Car'))
+    expect(() => injector.get(Car))
         .toThrowError('Cannot instantiate cyclic dependency! (Car -> Engine -> Car)');
   });
 
@@ -219,8 +208,8 @@ describe('injector', function() {
   it('should support "super" to call a parent constructor', function() {
     class Something {}
 
+    @Inject(Something)
     class Parent {
-      @Inject(Something)
       constructor(something) {
         this.parentSomething = something;
       }
@@ -243,6 +232,44 @@ describe('injector', function() {
   });
 
 
+  it('should support "super" to call multiple parent constructors', function() {
+    class Foo {}
+    class Bar {}
+
+    @Inject(Foo)
+    class Parent {
+      constructor(foo) {
+        this.parentFoo = foo;
+      }
+    }
+
+    @Inject(SuperConstructor, Foo)
+    class Child extends Parent {
+      constructor(superConstructor, foo) {
+        superConstructor();
+        this.childFoo = foo;
+      }
+    }
+
+    @Inject(Bar, SuperConstructor, Foo)
+    class GrandChild extends Child {
+      constructor(bar, superConstructor, foo) {
+        superConstructor();
+        this.grandChildBar = bar;
+        this.grandChildFoo = foo;
+      }
+    }
+
+    var injector = new Injector();
+    var instance = injector.get(GrandChild);
+
+    expect(instance.parentFoo).toBeInstanceOf(Foo);
+    expect(instance.childFoo).toBeInstanceOf(Foo);
+    expect(instance.grandChildFoo).toBeInstanceOf(Foo);
+    expect(instance.grandChildBar).toBeInstanceOf(Bar);
+  });
+
+
   it('should throw an error when used in a factory function', function() {
     class Something {}
 
@@ -252,9 +279,8 @@ describe('injector', function() {
       console.log('init', parent)
     }
 
-    var injector = new Injector([createSomething]);
-
     expect(function() {
+      var injector = new Injector([createSomething]);
       injector.get(Something);
     }).toThrowError(/Only classes with a parent can ask for SuperConstructor!/);
   });
@@ -269,6 +295,115 @@ describe('injector', function() {
     expect(function() {
       injector.get(WithoutParent);
     }).toThrowError(/Only classes with a parent can ask for SuperConstructor!/);
+  });
+
+
+  it('should throw an error when null/undefined token requested', function() {
+    var injector = new Injector();
+
+    expect(function() {
+      injector.get(null);
+    }).toThrowError(/Invalid token "null" requested!/);
+
+    expect(function() {
+      injector.get(undefined);
+    }).toThrowError(/Invalid token "undefined" requested!/);
+  });
+
+
+  // regression
+  it('should show the full path when null/undefined token requested', function() {
+    @Inject(undefined)
+    class Foo {}
+
+    @Inject(null)
+    class Bar {}
+
+    var injector = new Injector();
+
+    expect(function() {
+      injector.get(Foo);
+    }).toThrowError(/Invalid token "undefined" requested! \(Foo -> undefined\)/);
+
+    expect(function() {
+      injector.get(Bar);
+    }).toThrowError(/Invalid token "null" requested! \(Bar -> null\)/);
+  });
+
+
+  it('should provide itself', function() {
+    var injector = new Injector();
+
+    expect(injector.get(Injector)).toBe(injector);
+  });
+
+
+  describe('transient', function() {
+
+
+    it('should never cache', function() {
+      @TransientScope
+      class Foo {}
+
+      var injector = new Injector();
+      expect(injector.get(Foo)).not.toBe(injector.get(Foo));
+    });
+
+
+    it('should always use dependencies (default providers) from the youngest injector', function() {
+      @Inject
+      class Foo {}
+
+      @TransientScope
+      @Inject(Foo)
+      class AlwaysNewInstance {
+        constructor(foo) {
+          this.foo = foo;
+        }
+      }
+
+      var injector = new Injector();
+      var child = injector.createChild([Foo]); // force new instance of Foo
+
+      var fooFromChild = child.get(Foo);
+      var fooFromParent = injector.get(Foo);
+
+      var alwaysNew1 = child.get(AlwaysNewInstance);
+      var alwaysNew2 = child.get(AlwaysNewInstance);
+      var alwaysNewFromParent = injector.get(AlwaysNewInstance);
+
+      expect(alwaysNew1.foo).toBe(fooFromChild);
+      expect(alwaysNew2.foo).toBe(fooFromChild);
+      expect(alwaysNewFromParent.foo).toBe(fooFromParent);
+    });
+
+
+    it('should always use dependencies from the youngest injector', function() {
+      @Inject
+      class Foo {}
+
+      @TransientScope
+      @Inject(Foo)
+      class AlwaysNewInstance {
+        constructor(foo) {
+          this.foo = foo;
+        }
+      }
+
+      var injector = new Injector([AlwaysNewInstance]);
+      var child = injector.createChild([Foo]); // force new instance of Foo
+
+      var fooFromChild = child.get(Foo);
+      var fooFromParent = injector.get(Foo);
+
+      var alwaysNew1 = child.get(AlwaysNewInstance);
+      var alwaysNew2 = child.get(AlwaysNewInstance);
+      var alwaysNewFromParent = injector.get(AlwaysNewInstance);
+
+      expect(alwaysNew1.foo).toBe(fooFromChild);
+      expect(alwaysNew2.foo).toBe(fooFromChild);
+      expect(alwaysNewFromParent.foo).toBe(fooFromParent);
+    });
   });
 
 
@@ -402,11 +537,151 @@ describe('injector', function() {
 
 
     it('should show the full path when no provider', function() {
-      var parent = new Injector([houseModule]);
-      var child = parent.createChild([shinyHouseModule]);
+      var parent = new Injector(houseModule);
+      var child = parent.createChild(shinyHouseModule);
 
       expect(() => child.get('House'))
           .toThrowError('No provider for Sink! (House -> Kitchen -> Sink)');
+    });
+
+
+    it('should provide itself', function() {
+      var parent = new Injector();
+      var child = parent.createChild([]);
+
+      expect(child.get(Injector)).toBe(child);
+    });
+
+
+    it('should cache default provider in parent injector', function() {
+      @Inject
+      class Foo {}
+
+      var parent = new Injector();
+      var child = parent.createChild([]);
+
+      var fooFromChild = child.get(Foo);
+      var fooFromParent = parent.get(Foo);
+
+      expect(fooFromParent).toBe(fooFromChild);
+    });
+
+
+    it('should force new instance by annotation for default provider', function() {
+      class RequestScope {}
+
+      @Inject
+      @RequestScope
+      class Foo {}
+
+      var parent = new Injector();
+      var child = parent.createChild([], [RequestScope]);
+
+      var fooFromChild = child.get(Foo);
+      var fooFromParent = parent.get(Foo);
+
+      expect(fooFromParent).not.toBe(fooFromChild);
+    });
+  });
+
+
+  describe('lazy', function() {
+
+    it('should instantiate lazily', function() {
+      var constructorSpy = jasmine.createSpy('constructor');
+
+      class ExpensiveEngine {
+        constructor() {
+          constructorSpy();
+        }
+      }
+
+      class Car {
+        constructor(@InjectLazy(ExpensiveEngine) createEngine) {
+          this.engine = null;
+          this.createEngine = createEngine;
+        }
+
+        start() {
+          this.engine = this.createEngine();
+        }
+      }
+
+      var injector = new Injector();
+      var car = injector.get(Car);
+
+      expect(constructorSpy).not.toHaveBeenCalled();
+
+      car.start();
+      expect(constructorSpy).toHaveBeenCalled();
+      expect(car.engine).toBeInstanceOf(ExpensiveEngine);
+    });
+
+
+    // regression
+    it('should instantiate lazily from a parent injector', function() {
+      var constructorSpy = jasmine.createSpy('constructor');
+
+      class ExpensiveEngine {
+        constructor() {
+          constructorSpy();
+        }
+      }
+
+      class Car {
+        constructor(@InjectLazy(ExpensiveEngine) createEngine) {
+          this.engine = null;
+          this.createEngine = createEngine;
+        }
+
+        start() {
+          this.engine = this.createEngine();
+        }
+      }
+
+      var injector = new Injector([ExpensiveEngine]);
+      var childInjector = injector.createChild([Car]);
+      var car = childInjector.get(Car);
+
+      expect(constructorSpy).not.toHaveBeenCalled();
+
+      car.start();
+      expect(constructorSpy).toHaveBeenCalled();
+      expect(car.engine).toBeInstanceOf(ExpensiveEngine);
+    });
+
+
+    describe('with locals', function() {
+      it('should always create a new instance', function() {
+        var constructorSpy = jasmine.createSpy('constructor');
+
+        @TransientScope
+        class ExpensiveEngine {
+          constructor(@Inject('power') power) {
+            constructorSpy();
+            this.power = power;
+          }
+        }
+
+        class Car {
+          constructor(@InjectLazy(ExpensiveEngine) createEngine) {
+            this.createEngine = createEngine;
+          }
+        }
+
+        var injector = new Injector();
+        var car = injector.get(Car);
+
+        var veyronEngine = car.createEngine('power', 1184);
+        var mustangEngine = car.createEngine('power', 420);
+
+        expect(veyronEngine).not.toBe(mustangEngine);
+        expect(veyronEngine.power).toBe(1184);
+        expect(mustangEngine.power).toBe(420);
+
+        var mustangEngine2 = car.createEngine('power', 420);
+        expect(mustangEngine).not.toBe(mustangEngine2);
+      });
     });
   });
 });

@@ -1,4 +1,4 @@
-import {Inject} from '../../src/annotations';
+import {Inject} from 'di';
 
 import {Heater} from './heater';
 import {Pump} from './pump';
@@ -13,6 +13,6 @@ export class CoffeeMaker {
   brew() {
     this.pump.pump();
     this.heater.on();
-    console.log('Brewing...')
+    // console.log('Brewing...')
   }
 }
