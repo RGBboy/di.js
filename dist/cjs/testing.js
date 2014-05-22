@@ -1,11 +1,20 @@
 "use strict";
-var __moduleName = (void 0);
-var Injector = require('./injector').Injector;
-var $__3 = require('./annotations'),
-    Inject = $__3.Inject,
-    annotate = $__3.annotate,
-    getProvideAnnotation = $__3.getProvideAnnotation,
-    getInjectTokens = $__3.getInjectTokens;
+Object.defineProperties(exports, {
+  use: {get: function() {
+      return use;
+    }},
+  inject: {get: function() {
+      return inject;
+    }},
+  __esModule: {value: true}
+});
+var Injector = $traceurRuntime.assertObject(require('./injector')).Injector;
+var $__1 = $traceurRuntime.assertObject(require('./annotations')),
+    Inject = $__1.Inject,
+    annotate = $__1.annotate,
+    readAnnotations = $__1.readAnnotations;
+var isFunction = $traceurRuntime.assertObject(require('./util')).isFunction;
+var createProviderFromFnOrClass = $traceurRuntime.assertObject(require('./providers')).createProviderFromFnOrClass;
 var currentSpec = null;
 beforeEach(function() {
   currentSpec = this;
@@ -18,15 +27,6 @@ afterEach(function() {
 });
 function isRunning() {
   return !!currentSpec;
-}
-function isUpperCase(char) {
-  return char.toUpperCase() === char;
-}
-function isClass(clsOrFunction) {
-  if (clsOrFunction.name) {
-    return isUpperCase(clsOrFunction.name.charAt(0));
-  }
-  return Object.keys(clsOrFunction.prototype).length > 0;
 }
 function use(mock) {
   if (currentSpec && currentSpec.$$injector) {
@@ -53,51 +53,39 @@ function use(mock) {
 }
 function inject() {
   for (var params = [],
-      $__2 = 0; $__2 < arguments.length; $__2++) params[$__2] = arguments[$__2];
+      $__0 = 0; $__0 < arguments.length; $__0++)
+    params[$__0] = arguments[$__0];
   var behavior = params.pop();
   annotate(behavior, new (Function.prototype.bind.apply(Inject, $traceurRuntime.spread([null], params)))());
   var run = function() {
     if (!currentSpec.$$injector) {
       var providers = new Map();
       var modules = [];
-      for (var $__0 = currentSpec.$$providers[Symbol.iterator](),
-          $__1; !($__1 = $__0.next()).done;) {
-        var providerWrapper = $__1.value;
-        {
-          if (!providerWrapper.as) {
-            modules.push(providerWrapper.provider);
+      var annotations;
+      currentSpec.$$providers.forEach(function(providerWrapper) {
+        if (!providerWrapper.as) {
+          modules.push(providerWrapper.provider);
+        } else {
+          if (!isFunction(providerWrapper.provider)) {
+            providers.set(providerWrapper.as, createProviderFromFnOrClass(function() {
+              return providerWrapper.provider;
+            }, {
+              provide: {
+                token: null,
+                isPromise: false
+              },
+              params: []
+            }));
           } else {
-            if (typeof providerWrapper.provider !== 'function') {
-              providers.set(providerWrapper.as, {
-                provider: function() {
-                  return providerWrapper.provider;
-                },
-                params: [],
-                isClass: false
-              });
-            } else {
-              providers.set(providerWrapper.as, {
-                provider: providerWrapper.provider,
-                params: getInjectTokens(providerWrapper.provider),
-                isClass: isClass(providerWrapper.provider)
-              });
-            }
+            annotations = readAnnotations(providerWrapper.provider);
+            providers.set(providerWrapper.as, createProviderFromFnOrClass(providerWrapper.provider, annotations));
           }
         }
-      }
-      ;
+      });
       currentSpec.$$injector = new Injector(modules, null, providers);
     }
     currentSpec.$$injector.get(behavior);
   };
-  return isRunning() ? run(): run;
+  return isRunning() ? run() : run;
 }
 ;
-module.exports = {
-  get use() {
-    return use;
-  },
-  get inject() {
-    return inject;
-  }
-};

@@ -1,5 +1,22 @@
 "use strict";
-var __moduleName = (void 0);
+Object.defineProperties(exports, {
+  isUpperCase: {get: function() {
+      return isUpperCase;
+    }},
+  isClass: {get: function() {
+      return isClass;
+    }},
+  isFunction: {get: function() {
+      return isFunction;
+    }},
+  isObject: {get: function() {
+      return isObject;
+    }},
+  toString: {get: function() {
+      return toString;
+    }},
+  __esModule: {value: true}
+});
 function isUpperCase(char) {
   return char.toUpperCase() === char;
 }
@@ -19,26 +36,12 @@ function toString(token) {
   if (typeof token === 'string') {
     return token;
   }
+  if (token === undefined || token === null) {
+    return '' + token;
+  }
   if (token.name) {
     return token.name;
   }
   return token.toString();
 }
 ;
-module.exports = {
-  get isUpperCase() {
-    return isUpperCase;
-  },
-  get isClass() {
-    return isClass;
-  },
-  get isFunction() {
-    return isFunction;
-  },
-  get isObject() {
-    return isObject;
-  },
-  get toString() {
-    return toString;
-  }
-};
